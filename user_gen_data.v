@@ -164,6 +164,8 @@ always@(posedge i_clk or posedge i_rst)
 begin
     if (i_rst)
         ro_user_write_data <= 'd0;
+    else if (r_w_cnt >0 && r_w_cnt < ro_user_op_num - 1)
+        ro_user_write_data <= ro_user_write_data + 1;
     else if (w_user_active && r_st_current == P_ST_GEN_WRITE)
         ro_user_write_data <= ro_user_write_data + 1;
     else if (r_for_cnt_sig)
@@ -171,6 +173,7 @@ begin
     else
         ro_user_write_data <= ro_user_write_data;
 end
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -189,9 +192,9 @@ always@(posedge i_clk or posedge i_rst)
 begin
     if (i_rst)
         r_w_cnt <= 'd0;
-    else if (r_w_cnt == 1)
+    else if (r_w_cnt == ro_user_op_num - 1)
         r_w_cnt <= 'd0;
-    else if (r_for_cnt_sig)
+    else if (r_for_cnt_sig || r_w_cnt > 0)
         r_w_cnt <= r_w_cnt + 1;
     else
         r_w_cnt <= r_w_cnt;
@@ -202,7 +205,7 @@ always@(posedge i_clk or posedge i_rst)
 begin
     if (i_rst)
         ro_user_write_valid <= 'd0;
-    else if (r_w_cnt == 1)
+    else if (r_w_cnt == ro_user_op_num - 1)
         ro_user_write_valid <= 'd0;
     else if (w_user_active && r_st_current == P_ST_GEN_WRITE)
         ro_user_write_valid <= 'd1;
@@ -227,9 +230,9 @@ always@(posedge i_clk or posedge i_rst)
 begin
     if (i_rst)
         ro_user_write_eop <= 'd0;
-    else if (r_w_cnt == 1)  
+    else if (r_w_cnt ==  ro_user_op_num - 1)  
         ro_user_write_eop <= 'd0;
-    else if (r_for_cnt_sig)
+    else if (r_w_cnt ==  ro_user_op_num - 2)
         ro_user_write_eop <= 'd1;
     else
         ro_user_write_eop <= 'd0;
