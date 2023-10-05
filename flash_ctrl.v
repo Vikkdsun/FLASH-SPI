@@ -1,11 +1,11 @@
-// 联合用户和spi
+// 鑱斿悎鐢ㄦ埛鍜宻pi
 
 module flash_ctrl (
     input                               i_clk                       ,
     input                               i_rst                       ,
 
-    /*---------- 用户端口 ----------*/
-    input [1:0]                         i_user_op_type              ,       // 1         // 0清空 1写 2读 
+    /*---------- 鐢ㄦ埛绔彛 ----------*/
+    input [1:0]                         i_user_op_type              ,       // 1         // 0娓呯┖ 1鍐? 2璇? 
     input [23:0]                        i_user_op_addr              ,       // 1
     input [8:0]                         i_user_op_num               ,       // 1
     input                               i_user_op_valid             ,       // 1
@@ -21,7 +21,7 @@ module flash_ctrl (
     output                              o_user_read_eop             ,       // 1
     output                              o_user_read_valid           ,       // 1
 
-    /*---------- SPI端口 ----------*/
+    /*---------- SPI绔彛 ----------*/
     output [31:0]                       o_spi_op_data               ,       // 1
     output [1:0]                        o_spi_op_type               ,       // 1
     output [15:0]                       o_spi_op_len                ,       // 1
@@ -51,7 +51,7 @@ begin
 end
 */
 
-// 输出给SPI的先用寄存器连接 给SPI的要写的数据先不动 因为要走fifo 给用户的也先不动
+// 杈撳嚭缁橲PI鐨勫厛鐢ㄥ瘎瀛樺櫒杩炴帴 缁橲PI鐨勮鍐欑殑鏁版嵁鍏堜笉鍔? 鍥犱负瑕佽蛋fifo 缁欑敤鎴风殑涔熷厛涓嶅姩
 reg [31:0]                                                  ro_spi_op_data                                      ;
 reg [1:0]                                                   ro_spi_op_type                                      ;
 reg [15:0]                                                  ro_spi_op_len                                       ;
@@ -64,29 +64,97 @@ assign                                                      o_spi_op_len   = ro_
 assign                                                      o_spi_clk_len  = ro_spi_clk_len                     ;
 assign                                                      o_spi_op_valid = ro_spi_op_valid                    ;
 
-// 和用户握手   
+// 鍜岀敤鎴锋彙鎵?   
 wire                                                        w_user_active                                       ;
 assign                                                      w_user_active = o_user_op_ready & i_user_op_valid   ;
 
-// 把o_user_op_ready连接到寄存器
+// 鎶妎_user_op_ready杩炴帴鍒板瘎瀛樺櫒
 reg                                                         ro_user_op_ready                                    ;
-assign				o_user_op_ready = ro_user_op_ready    ;                                    
+
+reg [1:0]                                                   ri_user_op_type                                     ;
+reg [23:0]                                                  ri_user_op_addr                                     ;
+reg [8:0]                                                   ri_user_op_num                                      ;
+
+localparam                                                  P_USER_OP_TYPE_CLEAR    =   0                       ,
+                                                            P_USER_OP_TYPE_WRITE    =   1                       ,
+                                                            P_USER_OP_TYPE_READ     =   2                       ;       // 杩欐槸鐢ㄦ埛鍙戣繃鏉ョ殑type
+
+localparam                                                  P_SPI_OP_TYPE_INS       =   0                       ,
+                                                            P_SPI_OP_TYPE_WRITE     =   1                       ,
+                                                            P_SPI_OP_TYPE_READ      =   2                       ;       // 杩欐槸鍙戠粰SPI鐨則ypeP
+
+// 浣跨敤鐘舵?佹満 鍥犱负鍐欐暟鎹? 鎴栬?? 璇绘暟鎹? 鏄繛缁緢澶氭spi鎻℃墜
+reg [7:0]                                                   r_st_current                                        ;
+reg [7:0]                                                   r_st_next                                           ;
+
+// 鍜孲PI鎻℃墜
+wire                                                        w_spi_active                                        ;
+assign                                                      w_spi_active = o_spi_op_valid & i_spi_op_ready      ;
+
+localparam                                                  P_ST_IDLE       =   0                               ,       // 榛樿鐘舵?? 娌℃湁鍜岀敤鎴锋彙鎵? 灏变笉鍜宻pi鎻℃墜
+                                                            P_ST_RUN        =   1                               ,       // 鍜岀敤鎴锋彙鎵嬪悗 鍒ゆ柇瑕佽繘琛屼粈涔堟搷浣?
+                                                            P_ST_W_EN       =   2                               ,       // 鍐欎娇鑳? 浠讳綍鍐欐搷浣滃墠瑕佸厛浣胯兘
+                                                            P_ST_W_INS      =   3                               ,       // 鍐欐寚浠? 鍐欐暟鎹墠 鍏堟妸鎸囦护鍦板潃鍟ョ殑鍐欒繃鍘?
+                                                            P_ST_W_DATA     =   4                               ,       // 鍐欐暟鎹? 鐢ㄦ埛缁欑殑鏁版嵁鍦╢ifo閲? 鏈塻pi缁欑殑req鍐嶅彂鍑虹粰spi
+                                                            P_ST_R_INS      =   5                               ,       // 璇绘寚浠? 濡傛灉瑕佽 鎶婅鎸囦护浼犵粰spi
+                                                            P_ST_R_DATA     =   6                               ,       // 璇绘暟鎹? 璇诲埌鐨勬暟鎹紶鍒癴ifo 鏁村悎鍦ㄤ竴璧峰啀浜ょ粰鐢ㄦ埛
+                                                            P_ST_CLEAR      =   7                               ,       // 娓呯┖ 鎶婂啓杩沠lash鐨勫叏鎷夊洖1 杩欐牱涓嬫鎵嶈兘鍐?
+                                                            P_ST_BUSY       =   8                               ,       // 璇诲瘎瀛樺櫒 鎶婃寚浠ゅ彂缁檚pi 绛夊緟spi杩斿洖鐨勫瘎瀛樺櫒鍊?
+                                                            P_ST_BUSY_CHECK =   9                               ,       // 寰楀埌瀵勫瓨鍣ㄥ?煎悗 鐪嬩竴涓嬫渶浣庝綅 鍒ゆ柇蹇欏惁
+                                                            P_ST_BUSY_WAIT  =   10                              ;       // 濡傛灉蹇? 绛夊緟
+
+reg [15:0]                                                  r_st_cnt                                            ;
+
+reg [7:0]                                                   ri_user_write_data                                  ;
+reg                                                         ri_user_write_valid                                 ;
+
+reg                                                         r_fifo_read_wren                                    ;
+reg [7:0]                                                   ri_spi_read_data                                    ;
+reg                                                         r_fifo_read_rden_pos_1d                             ;
+
+// 浠?涔堟椂鍊欒緭鍑鸿鐨勬暟鎹憿锛? 銆娿?娿?婁篃瑕佽?冭檻鍚庨潰璇诲瘎瀛樺櫒璇诲繖鏃? 涓嶈兘杈撳嚭銆嬨?嬨??
+reg                                                         r_fifo_read_rden                                    ;
+// 鍙﹀ 璇讳娇鑳藉簲璇ュ緢闀挎椂闂翠负1 鍥犱负瑕佽鐨勬暟鎹 鎵?浠ヤ娇鐢╡mpty empty鍦╢ifo鍓╀竴涓暟鎹椂鎷夐珮 鍗充娇rden鍦ㄦ渶鍚庝竴涓暟鎹箣鍚庢媺浣? 閫氳繃鎺у埗濂絭alid涔熷彲浠ヤ娇鐢ㄦ埛鎷垮埌姝ｇ‘鐨勬暟
+wire                                                        w_fifo_read_empty                                   ;
+
+// 瑕佹娴媏mpty涓婂崌娌?
+reg                                                         r_fifo_read_empty_1d                                ;
+wire                                                        w_read_empty_pos                                    ;
+assign                                                      w_read_empty_pos = !r_fifo_read_empty_1d & w_fifo_read_empty;
+
+wire [7:0]                                                  w_fifo_read_data                                    ;
+
+reg  [7:0]                                                  ro_user_read_data                                   ;
+assign                                                      o_user_read_data = ro_user_read_data                ;
+
+reg                                                         r_fifo_read_rden_1d                                 ;
+wire                                                        w_fifo_read_rden_pos                                ;
+assign                                                      w_fifo_read_rden_pos = r_fifo_read_rden & !r_fifo_read_rden_1d ;
+
+reg                                                         ro_user_read_sop                                    ;
+reg                                                         ro_user_read_eop                                    ;
+reg                                                         ro_user_read_valid                                  ;
+assign                                                      o_user_op_ready = ro_user_op_ready                  ;
+
+assign				o_user_read_sop = ro_user_read_sop	;
+assign				o_user_read_eop = ro_user_read_eop 	;                                  
+assign				o_user_read_valid = ro_user_read_valid	;
+
 always@(posedge i_clk or posedge i_rst)
 begin
     if (i_rst)
         ro_user_op_ready <= 'd1;
     else if (w_user_active)
-        ro_user_op_ready <= 'd0;		// 注意优先级
+                ro_user_op_ready <= 'd0;
     else if (r_st_current == P_ST_IDLE)
-        ro_user_op_ready <= 'd1;                // 什么时候拉回ready暂时放一下
+        ro_user_op_ready <= 'd1;                // 浠?涔堟椂鍊欐媺鍥瀝eady鏆傛椂鏀句竴涓?
+    
     else
         ro_user_op_ready <= ro_user_op_ready;
 end
 
-// 把输入锁存 输入的写的数据一族先不处理 因为和FIFO有关系
-reg [7:0]                                                   ri_user_op_type                                     ;
-reg                                                         ri_user_op_addr                                     ;
-reg                                                         ri_user_op_num                                      ;
+// 鎶婅緭鍏ラ攣瀛? 杈撳叆鐨勫啓鐨勬暟鎹竴鏃忓厛涓嶅鐞? 鍥犱负鍜孎IFO鏈夊叧绯?
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -105,35 +173,9 @@ begin
     end
 end
 
-localparam                                                  P_USER_OP_TYPE_CLEAR    =   0                       ,
-                                                            P_USER_OP_TYPE_WRITE    =   1                       ,
-                                                            P_USER_OP_TYPE_READ     =   2                       ;       // 这是用户发过来的type
 
-localparam                                                  P_SPI_OP_TYPE_INS       =   0                       ,
-                                                            P_SPI_OP_TYPE_WRITE     =   1                       ,
-                                                            P_SPI_OP_TYPE_READ      =   2                       ;       // 这是发给SPI的typeP
 
-// 使用状态机 因为写数据 或者 读数据 是连续很多次spi握手
-reg [7:0]                                                   r_st_current                                        ;
-reg [7:0]                                                   r_st_next                                           ;
-
-// 和SPI握手
-wire                                                        w_spi_active                                        ;
-assign                                                      w_spi_active = o_spi_op_valid & i_spi_op_ready      ;
-
-localparam                                                  P_ST_IDLE       =   0                               ,       // 默认状态 没有和用户握手 就不和spi握手
-                                                            P_ST_RUN        =   1                               ,       // 和用户握手后 判断要进行什么操作
-                                                            P_ST_W_EN       =   2                               ,       // 写使能 任何写操作前要先使能
-                                                            P_ST_W_INS      =   3                               ,       // 写指令 写数据前 先把指令地址啥的写过去
-                                                            P_ST_W_DATA     =   4                               ,       // 写数据 用户给的数据在fifo里 有spi给的req再发出给spi
-                                                            P_ST_R_INS      =   5                               ,       // 读指令 如果要读 把读指令传给spi
-                                                            P_ST_R_DATA     =   6                               ,       // 读数据 读到的数据传到fifo 整合在一起再交给用户
-                                                            P_ST_CLEAR      =   7                               ,       // 清空 把写进flash的全拉回1 这样下次才能写
-                                                            P_ST_BUSY       =   8                               ,       // 读寄存器 把指令发给spi 等待spi返回的寄存器值
-                                                            P_ST_BUSY_CHECK =   9                               ,       // 得到寄存器值后 看一下最低位 判断忙否
-                                                            P_ST_BUSY_WAIT  =   10                              ;       // 如果忙 等待
-
-// 第一段
+// 绗竴娈?
 always@(posedge i_clk or posedge i_rst)
 begin
     if (i_rst)
@@ -142,11 +184,11 @@ begin
         r_st_current <= r_st_next;
 end
 
-// 第二段
+// 绗簩娈?
 always@(*)
 begin
     case(r_st_current)
-        P_ST_IDLE           :   r_st_next   =   w_user_active                           ?       P_ST_RUN            :       P_ST_IDLE           ;  
+        P_ST_IDLE           :   r_st_next   =   w_user_active                           ?       P_ST_RUN            :       P_ST_IDLE           ;   // 鎻℃墜浜嗗氨寮?濮?
         P_ST_RUN            :   r_st_next   =   ri_user_op_type == P_USER_OP_TYPE_READ  ?       P_ST_R_INS          :       P_ST_W_EN;
         P_ST_W_EN           :   r_st_next   =   r_st_cnt == 18                            ?       ri_user_op_type == P_USER_OP_TYPE_WRITE ? P_ST_W_INS     :  P_ST_CLEAR   :       P_ST_W_EN           ;  // 18 = 2xclk_len + 2
         P_ST_W_INS          :   r_st_next   =   r_st_cnt == 2*(32 + 8 * ri_user_op_num +1)                            ?       P_ST_W_DATA         :       P_ST_W_INS          ;
@@ -161,7 +203,7 @@ begin
     endcase
 end
 
-// 为了确定写、读数据状态什么时候结束 需要使用SPI发过来的ready 为了只要上升沿(X) <<<这是错误的>>> 具体可以画图来明了会跳转很快 这里应该就要ready 而不是上升沿
+// 涓轰簡纭畾鍐欍?佽鏁版嵁鐘舵?佷粈涔堟椂鍊欑粨鏉? 闇?瑕佷娇鐢⊿PI鍙戣繃鏉ョ殑ready 涓轰簡鍙涓婂崌娌?(X) <<<杩欐槸閿欒鐨?>>> 鍏蜂綋鍙互鐢诲浘鏉ユ槑浜? 杩欓噷搴旇灏辫ready 鑰屼笉鏄笂鍗囨部
 // reg                                                         ri_spi_op_ready                                     ;
 // wire                                                        w_spi_op_ready_pos                                  ;
 
@@ -175,8 +217,8 @@ end
 //         ri_spi_op_ready <= i_spi_op_ready;
 // end
 
-// 到达等待状态时 需要计数器判断等待时长
-reg [15:0]                                                  r_st_cnt                                            ;
+// 鍒拌揪绛夊緟鐘舵?佹椂 闇?瑕佽鏁板櫒鍒ゆ柇绛夊緟鏃堕暱
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -190,8 +232,8 @@ begin
         r_st_cnt <= r_st_cnt + 1;
 end
 
-// 第三段 这个状态机主要是为了发给SPI东西的 所以第三段的输出主要和SPI有关系
-always@(posedge i_clk or posedge i_rst)     
+// 绗笁娈? 杩欎釜鐘舵?佹満涓昏鏄负浜嗗彂缁橲PI涓滆タ鐨? 鎵?浠ョ涓夋鐨勮緭鍑轰富瑕佸拰SPI鏈夊叧绯?
+always@(posedge i_clk or posedge i_rst)     // op_data鍙兘杈撳叆32浣? 浣嗘槸閫氳繃杈撳叆鐨刼p_len纭畾鍝簺鏄渶瑕佺殑 鍙﹀ 鍙緭鍏?8浣嶇殑 鍚庨潰鍏?0
 begin
     if (i_rst) begin
         ro_spi_op_data  <= 'd0;
@@ -208,19 +250,19 @@ begin
     end else if (r_st_current == P_ST_W_INS) begin
         ro_spi_op_data  <= {8'h02,ri_user_op_addr};
         ro_spi_op_type  <= P_SPI_OP_TYPE_WRITE;
-        ro_spi_op_len   <= 32;      
+        ro_spi_op_len   <= 32;      // 鎸囦护鍜屽湴鍧?
         ro_spi_clk_len  <= 32 + 8 * ri_user_op_num;
         ro_spi_op_valid <= 'd1;
     end else if (r_st_current == P_ST_R_INS) begin
         ro_spi_op_data  <= {8'h03,ri_user_op_addr};
         ro_spi_op_type  <= P_SPI_OP_TYPE_READ;
-        ro_spi_op_len   <= 32;      
+        ro_spi_op_len   <= 32;      // 鎸囦护鍜屽湴鍧?
         ro_spi_clk_len  <= 32 + 8 * ri_user_op_num;
         ro_spi_op_valid <= 'd1;
     end else if (r_st_current == P_ST_CLEAR) begin
         ro_spi_op_data  <= {8'h20,ri_user_op_addr};
         ro_spi_op_type  <= P_SPI_OP_TYPE_INS;
-        ro_spi_op_len   <= 32;      
+        ro_spi_op_len   <= 32;      // 鎸囦护鍜屽湴鍧?
         ro_spi_clk_len  <= 32;
         ro_spi_op_valid <= 'd1;
     end else if (r_st_current == P_ST_BUSY) begin
@@ -238,22 +280,20 @@ begin
     end
 end
 
+// 鐜板湪 鎴戜滑鍙互鍥炶繃澶存潵鐪嬩竴涓媢ser_ready鐨勬媺楂樻潯浠朵簡 涔熷氨鏄姸鎬佹満鍥炲埌idle 
+// 涓嶇敤current next涓嶇浉鍚屼綔涓烘媺楂樻潯浠跺彲浠ヨ涓烘槸 鍜? spi鐨勬媺楂樻潯浠朵竴鏍? 鎵撲竴鎷嶅啀鎷夐珮 绠楁槸涓?涓繚闄╁惂
 
-// 现在 我们可以回过头来看一下user_ready的拉高条件了 也就是状态机回到idle 
-// 不用current next不相同作为拉高条件可以认为是 和 spi的拉高条件一样 打一拍再拉高 算是一个保险吧
+// 鐒跺悗灏辨槸澶勭悊澶嶆潅鐨? 濡傛灉瑕佸啓 瑕佽 鎬庝箞鍔?
 
-// 然后就是处理复杂的 如果要写 要读 怎么办
-
-// 首先看写
+// 棣栧厛鐪嬪啓
 // i_user_write_data 
 // i_user_write_sop  
 // i_user_write_eop  
 // i_user_write_valid
 
-// 用户输入进来的写的数据 不能直接交给SPI 要等SPI的req
-// 用FIFO 但是FIFO输入要打拍 因为输入打拍了 要给valid也打拍
-reg [7:0]                                                   ri_user_write_data                                  ;
-reg                                                         ri_user_write_valid                                 ;
+// 鐢ㄦ埛杈撳叆杩涙潵鐨勫啓鐨勬暟鎹? 涓嶈兘鐩存帴浜ょ粰SPI 瑕佺瓑SPI鐨剅eq
+// 鐢‵IFO 浣嗘槸FIFO杈撳叆瑕佹墦鎷? 鍥犱负杈撳叆鎵撴媿浜? 瑕佺粰valid涔熸墦鎷?
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -269,15 +309,15 @@ end
 FLASH_CTRL_FIFO_DATA FLASH_CTRL_FIFO_DATA_U0 (
     .clk      (i_clk                ),  
     .srst     (i_rst                ),  
-    .din      (ri_user_write_data   ),               // 注意 输入到FIFO的数据要打一拍
+    .din      (ri_user_write_data   ),               // 娉ㄦ剰 杈撳叆鍒癋IFO鐨勬暟鎹鎵撲竴鎷?
     .wr_en    (ri_user_write_valid  ),  
-    .rd_en    (i_spi_write_req      ),                                 // 读使能（SPI什么时候可以取数据）  答：req
+    .rd_en    (i_spi_write_req      ),                                 // 璇讳娇鑳斤紙SPI浠?涔堟椂鍊欏彲浠ュ彇鏁版嵁锛?  绛旓細req
     .dout     (o_user_write_data    ),               
-    .full     (),                           // 由于写数据和写多少是用户决定�?? 然后在一�??始就传给spi时钟�?? �??以不会存在spi要数据时没有数据 或�?�FIFO满了 不能写的情况
+    .full     (),                           // 鐢变簬鍐欐暟鎹拰鍐欏灏戞槸鐢ㄦ埛鍐冲畾锟??? 鐒跺悗鍦ㄤ竴锟???濮嬪氨浼犵粰spi鏃堕挓锟??? 锟???浠ヤ笉浼氬瓨鍦╯pi瑕佹暟鎹椂娌℃湁鏁版嵁 鎴栵拷?锟紽IFO婊′簡 涓嶈兘鍐欑殑鎯呭喌
     .empty    ()  
 );
 
-// 然后看读
+// 鐒跺悗鐪嬭
 // o_user_read_data 
 // o_user_read_sop  
 // o_user_read_eop  
@@ -286,21 +326,21 @@ FLASH_CTRL_FIFO_DATA FLASH_CTRL_FIFO_DATA_U0 (
 // i_spi_read_data 
 // i_spi_read_valid
 
-// SPI读到的数据 并不连续 为了连续 使用FIFO
+// SPI璇诲埌鐨勬暟鎹? 骞朵笉杩炵画 涓轰簡杩炵画 浣跨敤FIFO
 
 FLASH_CTRL_FIFO_DATA FLASH_CTRL_FIFO_DATA_READ_U0 (
     .clk      (i_clk                ), 
     .srst     (i_rst                ), 
-    .din      (ri_spi_read_data     ),           // 同样要打�??
-    .wr_en    (r_fifo_read_wren     ),         // �??么时候可以读？valid 但是要注�?? 有一个读是读�?? 是不�??要往这里面写�?? 因为他就�??个数�?? 在busy_check就读�?? 如果也写这里 后面读就读寄存器�??
+    .din      (ri_spi_read_data     ),           // 鍚屾牱瑕佹墦锟???
+    .wr_en    (r_fifo_read_wren     ),         // 锟???涔堟椂鍊欏彲浠ヨ锛焩alid 浣嗘槸瑕佹敞锟??? 鏈変竴涓鏄锟??? 鏄笉锟???瑕佸線杩欓噷闈㈠啓锟??? 鍥犱负浠栧氨锟???涓暟锟??? 鍦╞usy_check灏辫锟??? 濡傛灉涔熷啓杩欓噷 鍚庨潰璇诲氨璇诲瘎瀛樺櫒锟???
     .rd_en    (r_fifo_read_rden     ), 
     .dout     (w_fifo_read_data     ), 
     .full     (),    
-    .empty    (w_fifo_read_empty    )                            // 这里借助�??下empty 为了确定�??么时候结束读(感觉这里不用empty 用输入给的num也可以确定什么时候不�??)
+    .empty    (w_fifo_read_empty    )                            // 杩欓噷鍊熷姪锟???涓媏mpty 涓轰簡纭畾锟???涔堟椂鍊欑粨鏉熻(鎰熻杩欓噷涓嶇敤empty 鐢ㄨ緭鍏ョ粰鐨刵um涔熷彲浠ョ‘瀹氫粈涔堟椂鍊欎笉锟???)
 );
 
-// 写使能要注意 只有读数据时才能写 后面读寄存器读忙不可以写
-reg                                                         r_fifo_read_wren                                    ;
+// 鍐欎娇鑳借娉ㄦ剰 鍙湁璇绘暟鎹椂鎵嶈兘鍐? 鍚庨潰璇诲瘎瀛樺櫒璇诲繖涓嶅彲浠ュ啓
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -312,8 +352,8 @@ begin
         r_fifo_read_wren <= 'd0;
 end
 
-// 输入数据打拍 正好和上面的valid同步了
-reg [7:0]                                                   ri_spi_read_data                                    ;
+// 杈撳叆鏁版嵁鎵撴媿 姝ｅソ鍜屼笂闈㈢殑valid鍚屾浜?
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -323,15 +363,7 @@ begin
         ri_spi_read_data <= i_spi_read_data;
 end
 
-// 什么时候输出读的数据呢？ 《《《也要考虑后面读寄存器读忙时 不能输出》》》
-reg                                                         r_fifo_read_rden                                    ;
-// 另外 读使能应该很长时间为1 因为要读的数据多 所以使用empty empty在fifo剩一个数据时拉高 即使rden在最后一个数据之后拉低 通过控制好valid也可以使用户拿到正确的数
-wire                                                        w_fifo_read_empty                                   ;
 
-// 要检测empty上升沿
-reg                                                         r_fifo_read_empty_1d                                ;
-wire                                                        w_read_empty_pos                                    ;
-assign                                                      w_read_empty_pos = !r_fifo_read_empty_1d & w_fifo_read_empty;
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -353,11 +385,8 @@ begin
         r_fifo_read_rden <= r_fifo_read_rden;
 end
 
-// 多方考虑下 如果读到的数据直接连给用户 那么eop valid难以确定 所以这里先把fifo读到的暂留 打拍后再给用户
-wire [7:0]                                                  w_fifo_read_data                                    ;
+// 澶氭柟鑰冭檻涓? 濡傛灉璇诲埌鐨勬暟鎹洿鎺ヨ繛缁欑敤鎴? 閭ｄ箞eop valid闅句互纭畾 鎵?浠ヨ繖閲屽厛鎶奻ifo璇诲埌鐨勬殏鐣? 鎵撴媿鍚庡啀缁欑敤鎴?
 
-reg  [7:0]                                                  ro_user_read_data                                   ;
-assign                                                      o_user_read_data = ro_user_read_data                ;
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -367,11 +396,9 @@ begin
         ro_user_read_data <= w_fifo_read_data;
 end
 
-// 这回再根据empty和读使能确定sop eop valid
-// 寻找读使能信号的上升沿
-reg                                                         r_fifo_read_rden_1d                                 ;
-wire                                                        w_fifo_read_rden_pos                                ;
-assign                                                      w_fifo_read_rden_pos = r_fifo_read_rden & !r_fifo_read_rden_1d ;
+// 杩欏洖鍐嶆牴鎹甧mpty鍜岃浣胯兘纭畾sop eop valid
+// 瀵绘壘璇讳娇鑳戒俊鍙风殑涓婂崌娌?
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -381,18 +408,10 @@ begin
         r_fifo_read_rden_1d <= r_fifo_read_rden;
 end
 
-// 寻找empty的上升沿 之前有了 w_read_empty_pos
+// 瀵绘壘empty鐨勪笂鍗囨部 涔嬪墠鏈変簡 w_read_empty_pos
 
-// 寄存器连接sop eop valid
-reg                                                         ro_user_read_sop                                    ;
-reg                                                         ro_user_read_eop                                    ;
-reg                                                         ro_user_read_valid                                  ;
+// 瀵勫瓨鍣ㄨ繛鎺op eop valid
 
-assign				o_user_read_sop = ro_user_read_sop	;
-assign				o_user_read_eop = ro_user_read_eop 	;                                  
-assign				o_user_read_valid = ro_user_read_valid	;
-
-reg                                                         r_fifo_read_rden_pos_1d                             ;
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -411,6 +430,7 @@ begin
     else
         ro_user_read_sop <= 'd0;
 end
+
 
 always@(posedge i_clk or posedge i_rst)
 begin
@@ -437,7 +457,7 @@ end
 endmodule
 
 // 我在这里写下另一种状态机控制
-// 状态数量更少 更容易理解
+// 状�?�数量更�? 更容易理�?
 
 // localparam                          P_ST_IDLE   =   0                       ,
 //                                     P_ST_RUN    =   1                       ,
@@ -480,19 +500,19 @@ endmodule
 //     end else if (r_st_current == P_ST_W_DATA) begin
 //         ro_spi_op_data  <= {8'h02,ri_user_op_addr};
 //         ro_spi_op_type  <= P_SPI_OP_TYPE_WRITE;
-//         ro_spi_op_len   <= 32;      // 指令和地址
+//         ro_spi_op_len   <= 32;      // 指令和地�?
 //         ro_spi_clk_len  <= 32 + 8 * ri_user_op_num;
 //         ro_spi_op_valid <= 'd1;
 //     end else if (r_st_current == P_ST_R_DATA) begin
 //         ro_spi_op_data  <= {8'h03,ri_user_op_addr};
 //         ro_spi_op_type  <= P_SPI_OP_TYPE_READ;
-//         ro_spi_op_len   <= 32;      // 指令和地址
+//         ro_spi_op_len   <= 32;      // 指令和地�?
 //         ro_spi_clk_len  <= 32 + 8 * ri_user_op_num;
 //         ro_spi_op_valid <= 'd1;
 //     end else if (r_st_current == P_ST_CLEAR) begin
 //         ro_spi_op_data  <= {8'h20,ri_user_op_addr};
 //         ro_spi_op_type  <= P_SPI_OP_TYPE_INS;
-//         ro_spi_op_len   <= 32;      // 指令和地址
+//         ro_spi_op_len   <= 32;      // 指令和地�?
 //         ro_spi_clk_len  <= 32;
 //         ro_spi_op_valid <= 'd1;
 //     end else if (r_st_current == P_ST_BUSY) begin
@@ -509,7 +529,4 @@ endmodule
 //         ro_spi_op_valid <= 'd0; 
 //     end
 // end
-
-
-
 

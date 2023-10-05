@@ -39,8 +39,8 @@ flash_ctrl flash_ctrl_u0(
     .i_clk                  (i_clk                  )               ,
     .i_rst                  (i_rst                  )               ,
     
-    /*---------- 用户端口 ----------*/  
-    .i_user_op_type         (i_user_op_type         )               ,       // 1         // 0清空 1写 2读 
+    /*---------- 鐢ㄦ埛绔彛 ----------*/  
+    .i_user_op_type         (i_user_op_type         )               ,       // 1         // 0娓呯┖ 1鍐� 2璇� 
     .i_user_op_addr         (i_user_op_addr         )               ,       // 1
     .i_user_op_num          (i_user_op_num          )               ,       // 1
     .i_user_op_valid        (i_user_op_valid        )               ,       // 1
@@ -56,7 +56,7 @@ flash_ctrl flash_ctrl_u0(
     .o_user_read_eop        (o_user_read_eop        )               ,       // 1
     .o_user_read_valid      (o_user_read_valid      )               ,       // 1
     
-    /*---------- SPI端口 ----------*/   
+    /*---------- SPI绔彛 ----------*/   
     .o_spi_op_data          (w_spi_op_data          )               ,       // 1
     .o_spi_op_type          (w_spi_op_type          )               ,       // 1
     .o_spi_op_len           (w_spi_op_len           )               ,       // 1
@@ -79,24 +79,24 @@ spi_drive#(
 )           
 spi_drive_u0
 (                           
-    .i_clk                  (i_clk                  )               ,      //绯荤粺鏃堕挓
-    .i_rst                  (i_rst                  )               ,      //澶嶄綅
+    .i_clk                  (i_clk                  )               ,      //缁崵绮洪弮鍫曟寭
+    .i_rst                  (i_rst                  )               ,      //婢跺秳缍�
 
-    .o_spi_clk              (o_spi_clk              )               ,      //spi鐨刢lk
-    .o_spi_cs               (o_spi_cs               )               ,      //spi鐨勭墖锟�?
-    .o_spi_mosi             (o_spi_mosi             )               ,      //spi鐨勪富鏈鸿緭锟�?
-    .i_spi_miso             (i_spi_miso             )               ,      //spi鐨勪粠鏈鸿緭锟�?
+    .o_spi_clk              (o_spi_clk              )               ,      //spi閻ㄥ垻lk
+    .o_spi_cs               (o_spi_cs               )               ,      //spi閻ㄥ嫮澧栭敓锟�?
+    .o_spi_mosi             (o_spi_mosi             )               ,      //spi閻ㄥ嫪瀵岄張楦跨翻閿燂拷?
+    .i_spi_miso             (i_spi_miso             )               ,      //spi閻ㄥ嫪绮犻張楦跨翻閿燂拷?
 
-    .i_user_op_data         (w_spi_op_data          )               ,      //鎿嶄綔鏁版嵁锛堟寚锟�?8bit+鍦板潃24bit锟�?
-    .i_user_op_type         (w_spi_op_type          )               ,      //鎿嶄綔绫诲瀷锛堣銆佸啓銆佹寚浠わ級
-    .i_user_op_len          (w_spi_op_len           )               ,      //鎿嶄綔鏁版嵁鐨勯暱锟�?32锟�?8
-    .i_user_clk_len         (w_spi_clk_len          )               ,      //鏃堕挓鍛ㄦ湡
-    .i_user_op_valid        (w_spi_op_valid         )               ,      //鐢ㄦ埛鐨勬湁鏁堜俊锟�?
-    .o_user_op_ready        (w_spi_op_ready         )               ,      //鐢ㄦ埛鐨勫噯澶囦俊锟�?
-    .i_user_write_data      (w_user_write_data      )               ,      //鍐欐暟锟�?
-    .o_user_write_req       (w_spi_write_req        )               ,      //鍐欐暟鎹锟�?
-    .o_user_read_data       (w_spi_read_data        )               ,      //璇绘暟锟�?
-    .o_user_read_valid      (w_spi_read_valid       )                      //璇绘暟鎹湁锟�?
+    .i_user_op_data         (w_spi_op_data          )               ,      //閹垮秳缍旈弫鐗堝祦閿涘牊瀵氶敓锟�?8bit+閸︽澘娼�24bit閿燂拷?
+    .i_user_op_type         (w_spi_op_type          )               ,      //閹垮秳缍旂猾璇茬�烽敍鍫ｎ嚢閵嗕礁鍟撻妴浣瑰瘹娴犮倧绱�
+    .i_user_op_len          (w_spi_op_len           )               ,      //閹垮秳缍旈弫鐗堝祦閻ㄥ嫰鏆遍敓锟�?32閿燂拷?8
+    .i_user_clk_len         (w_spi_clk_len          )               ,      //閺冨爼鎸撻崨銊︽埂
+    .i_user_op_valid        (w_spi_op_valid         )               ,      //閻€劍鍩涢惃鍕箒閺佸牅淇婇敓锟�?
+    .o_user_op_ready        (w_spi_op_ready         )               ,      //閻€劍鍩涢惃鍕櫙婢跺洣淇婇敓锟�?
+    .i_user_write_data      (w_user_write_data      )               ,      //閸愭瑦鏆熼敓锟�?
+    .o_user_write_req       (w_spi_write_req        )               ,      //閸愭瑦鏆熼幑顔款嚞閿燂拷?
+    .o_user_read_data       (w_spi_read_data        )               ,      //鐠囩粯鏆熼敓锟�?
+    .o_user_read_valid      (w_spi_read_valid       )                      //鐠囩粯鏆熼幑顔芥箒閿燂拷?
 );
 
 endmodule
